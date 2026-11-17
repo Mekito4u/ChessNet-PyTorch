@@ -1,6 +1,7 @@
 import datetime
 import os
 
+import numpy as np
 import chess
 import chess.pgn
 import torch
@@ -9,13 +10,26 @@ from ChessNet import ChessNet
 from MCTS import MCTS
 
 
-def get_best_move_mcts(model, board, num_simulations=200):
+def get_best_move_mcts(model, board, num_simulations=200, temperature=0.0, add_noise=False):
     mcts = MCTS(model, num_simulations=num_simulations)
     root = mcts.search(board)
     if root is None or not root.children:
         return list(board.legal_moves)[0], 0.0
-    best_move = max(root.children.keys(), key=lambda m: root.children[m].N)
-    return best_move, root.children[best_move].Q
+
+    moves = list(root.children.keys())
+    visits = np.array([root.children[m].N for m in moves], dtype=np.float64)
+
+    if temperature == 0.0:
+        # Жадный выбор
+        best_move = moves[np.argmax(visits)]
+    else:
+        # Выбор с температурой
+        visits = visits ** (1.0 / temperature)
+        probs = visits / visits.sum()
+        best_move = np.random.choice(moves, p=probs)
+
+    best_value = root.children[best_move].Q
+    return best_move, best_value
 
 
 def save_game_to_pgn(board, white, black, prefix):
@@ -72,8 +86,16 @@ def play_with_human(model_path):
 
     print(f"Загружена модель: {model_path}")
     print("Вы играете за БЕЛЫХ.")
+    move_num = 1
 
     while not board.is_game_over(claim_draw=True):
+        if move_num <= 15:
+            temp = 1.0
+            use_noise = True
+        else:
+            temp = 0.0
+            use_noise = False
+
         if board.turn == chess.WHITE:
             print("\n" + str(board))
             if board.is_check(): print("ШАХ!")
@@ -90,10 +112,16 @@ def play_with_human(model_path):
                     print("Неверный формат (введите e2e4).")
         else:
             print("Сеть думает...")
-            move, val = get_best_move_mcts(model, board)
+            move, val = get_best_move_mcts(
+                model, board, 
+                num_simulations=150, 
+                temperature=temp, 
+                add_noise=use_noise
+            )
             board.push(move)
             print(f"Сеть походила: {move} (Оценка: {val:.2f})")
             if board.is_check(): print("СЕТЬ ОБЪЯВИЛА ШАХ!")
+        move_num += 1
 
     print_game_result(board)
     save_game_to_pgn(board, "Human", "ChessNet", "human_vs_network")
@@ -108,10 +136,25 @@ def play_self_game(model_path):
     board = chess.Board()
 
     print("Игра сети с самой собой...")
+    move_num = 1
+
     while not board.is_game_over(claim_draw=True):
-        move, val = get_best_move_mcts(model, board)
+        if move_num <= 15:
+            temp = 1.0
+            use_noise = True
+        else:
+            temp = 0.0
+            use_noise = False
+
+        move, val = get_best_move_mcts(
+            model, board, 
+            num_simulations=150, 
+            temperature=temp, 
+            add_noise=use_noise
+        )
         board.push(move)
         print(f"{move} (Оценка: {val:.2f})", end=" ")
+        move_num += 1
     print("\n")
     print_game_result(board)
     save_game_to_pgn(board, "ChessNet", "ChessNet", "selfplay")

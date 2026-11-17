@@ -78,6 +78,7 @@ def train_core(model, dataset, prefix, epochs=20, batch_size=256, lr=0.001, resu
             total_loss += loss.item()
 
         print(f"Эпоха {epoch+1}/{epochs}, Loss: {total_loss/len(dataloader):.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
+        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         torch.save({
             'epoch': epoch + 1, 
             'model': model.state_dict(), 
