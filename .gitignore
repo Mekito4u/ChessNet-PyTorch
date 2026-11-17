@@ -1,0 +1,24 @@
+# Настройки IDE
+.idea/
+.gigaide/
+*.iml
+
+# Модели
+models/
+*.pth
+*.pt
+
+# Данные
+data/
+archive/
+*.pgn
+
+# Кэш Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Системные файлы
+.DS_Store
