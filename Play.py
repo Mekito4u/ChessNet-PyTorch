@@ -1,5 +1,7 @@
 import datetime
 import os
+import sys
+from random import randint
 
 import numpy as np
 import chess
@@ -76,7 +78,7 @@ def print_game_result(board):
         print(f"Результат: {board.result()}")
 
 
-def play_with_human(model_path):
+def play_with_human(model_path, num_simulations=100):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = ChessNet()
     model.load_state_dict(torch.load(model_path, map_location=device))
@@ -98,36 +100,35 @@ def play_with_human(model_path):
 
         if board.turn == chess.WHITE:
             print("\n" + str(board))
-            if board.is_check(): print("ШАХ!")
             while True:
                 move_str = input("Ваш ход: ")
                 try:
                     move = chess.Move.from_uci(move_str)
                     if move in board.legal_moves:
                         board.push(move)
+                        if board.is_check(): print("ШАХ!")
                         break
                     else:
                         print("Нелегальный ход!")
                 except:
                     print("Неверный формат (введите e2e4).")
         else:
-            print("Сеть думает...")
             move, val = get_best_move_mcts(
                 model, board, 
-                num_simulations=150, 
+                num_simulations=num_simulations, 
                 temperature=temp, 
                 add_noise=use_noise
             )
             board.push(move)
-            print(f"Сеть походила: {move} (Оценка: {val:.2f})")
-            if board.is_check(): print("СЕТЬ ОБЪЯВИЛА ШАХ!")
+            print(f"ChessNet: {move} (Оценка: {val:.2f})")
+            if board.is_check(): print("ChessNet ШАХ!")
         move_num += 1
 
     print_game_result(board)
     save_game_to_pgn(board, "Human", "ChessNet", "human_vs_network")
 
 
-def play_self_game(model_path):
+def play_self_game(model_path, num_simulations=100, show_motion=False):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = ChessNet()
     model.load_state_dict(torch.load(model_path, map_location=device))
@@ -135,7 +136,58 @@ def play_self_game(model_path):
     model.eval()
     board = chess.Board()
 
-    print("Игра сети с самой собой...")
+    print("Игра ChessNet с самой собой...")
+    move_num = 1
+
+    while not board.is_game_over(claim_draw=True):
+        if move_num <= 5:
+            temp = 1.0
+            use_noise = True
+        else:
+            temp = 0.0
+            use_noise = False
+
+        if board.turn == chess.WHITE:
+            if show_motion:
+              print(f"\n{move_num}.", end=" ")
+            move_num += 1
+
+        move, val = get_best_move_mcts(
+            model, board, 
+            num_simulations=num_simulations, 
+            temperature=temp, 
+            add_noise=use_noise
+        )
+        board.push(move)
+        if show_motion:
+            val_white = val if board.turn == chess.WHITE else -val
+            print(f"{move} ({val_white:+.2f})", end=" ")
+            if board.is_check(): print("ШАХ!", end=" ")
+        
+    print("\nИгра окончена!")
+    print(board.result(claim_draw=True))
+    save_game_to_pgn(board, "ChessNet", "ChessNet", "selfplay")
+    return board.result(claim_draw=True)
+
+def play_with_stockfish(model_path, elo=1500, num_simulations=100, show_motion=False):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model = ChessNet()
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
+    model.eval()
+    
+    if sys.platform.startswith("linux"):
+        engine_path = "/usr/games/stockfish"
+    else:
+        engine_path = "stockfish/stockfish-windows-x86-64-universal.exe"
+    engine = chess.engine.SimpleEngine.popen_uci(engine_path)
+    random_elo = randint(elo-150, elo+150)
+    engine.configure({"UCI_LimitStrength": True, "UCI_Elo": random_elo})
+    
+    
+    
+    print(f"Игра против Stockfish (Elo: {random_elo}). Вы играете за Белых.")
+    board = chess.Board()
     move_num = 1
 
     while not board.is_game_over(claim_draw=True):
@@ -145,16 +197,29 @@ def play_self_game(model_path):
         else:
             temp = 0.0
             use_noise = False
-
-        move, val = get_best_move_mcts(
-            model, board, 
-            num_simulations=150, 
-            temperature=temp, 
-            add_noise=use_noise
-        )
-        board.push(move)
-        print(f"{move} (Оценка: {val:.2f})", end=" ")
-        move_num += 1
-    print("\n")
-    print_game_result(board)
-    save_game_to_pgn(board, "ChessNet", "ChessNet", "selfplay")
+        
+        if board.turn == chess.WHITE:
+            move, val = get_best_move_mcts(
+                model, board, 
+                num_simulations=num_simulations, 
+                temperature=temp, 
+                add_noise=use_noise
+            )
+            board.push(move)
+            if show_motion:
+              if board.is_check(): print("CN ШАХ!", end=" ")
+              print(f"{move_num}. {move} ", end="")
+            move_num += 1
+        else:
+            result = engine.play(board, chess.engine.Limit(time=0.5))
+            board.push(result.move)
+            if show_motion:
+              if board.is_check(): print("Sf ШАХ!", end=" ")
+              print(f"{result.move} Оценка: {val:.2f}")
+        
+    engine.quit()
+    
+    print("\nИгра окончена!")
+    print(board.result(claim_draw=True))
+    save_game_to_pgn(board, "ChessNet", f"Stockfish_{elo}", "vs_stockfish")
+    return board.result(claim_draw=True)

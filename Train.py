@@ -1,5 +1,6 @@
 import os
 import time
+import shutil
 
 import torch.optim as optim
 from sympy.printing.pytorch import torch
@@ -9,6 +10,14 @@ from torch.utils.data import DataLoader
 from ChessDataset import ChessDataset
 from ChessNet import ChessNet
 from Load import load_all_pgns_from_folder
+
+def move_files_to_archive():
+    # Переносим обученные файлы в архив
+    os.makedirs("archive", exist_ok=True)
+    files = [f for f in os.listdir("data") if f.endswith(".pgn")]
+    for f in files:
+        shutil.move(os.path.join("data", f), os.path.join("archive", f))
+    print(f"Перемещено в архив: {len(files)} файлов.")
 
 
 def get_next_path(prefix, folder="models"):
@@ -99,3 +108,4 @@ def train_from_scratch(epochs=20, resume=False):
         print("Нет данных!")
         return
     train_core(ChessNet(), ChessDataset(data), prefix="scratch", epochs=epochs, lr=0.001, resume=resume)
+    move_files_to_archive()

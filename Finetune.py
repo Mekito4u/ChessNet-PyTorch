@@ -1,21 +1,11 @@
 import os
-import shutil
 
 import torch
 
 from ChessDataset import ChessDataset
 from ChessNet import ChessNet
 from Load import load_all_pgns_from_folder
-from Train import train_core
-
-
-def move_files_to_archive():
-    # Переносим обученные файлы в архив
-    os.makedirs("archive", exist_ok=True)
-    files = [f for f in os.listdir("data") if f.endswith(".pgn")]
-    for f in files:
-        shutil.move(os.path.join("data", f), os.path.join("archive", f))
-    print(f"Перемещено в архив: {len(files)} файлов.")
+from Train import train_core, move_files_to_archive
 
 
 def finetune_model(base_model_path, epochs=5):
