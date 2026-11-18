@@ -2,6 +2,7 @@ import datetime
 import os
 import sys
 from random import randint
+import time
 
 import numpy as np
 import chess
@@ -146,6 +147,7 @@ def play_with_human(model_path, num_simulations=200, max_move_num=0):
 
 
 def play_self_game(model_white_path, model_black_path, num_simulations=200, show_motion=False, max_move_num=0):
+    time0 = time.time()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     model_white = ChessNet()
@@ -200,6 +202,10 @@ def play_self_game(model_white_path, model_black_path, num_simulations=200, show
       print("Достигнут лимит ходов — ничья.")
     print(result)
 
+    time1 = time.time()
+    print(f"Заняло: {int(time1-time0)}с")
+
+
     name_w = os.path.basename(model_white_path).replace('.pth', '')
     name_b = os.path.basename(model_black_path).replace('.pth', '')
     save_game_to_pgn(board, name_w, name_b, f"{name_w}_vs_{name_b}", evals=evals_history)
@@ -207,6 +213,8 @@ def play_self_game(model_white_path, model_black_path, num_simulations=200, show
     return result
 
 def play_with_stockfish(model_path, elo=1500, num_simulations=200, show_motion=False):
+    time0 = time.time()
+
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = ChessNet()
     model.load_state_dict(torch.load(model_path, map_location=device))
@@ -261,6 +269,10 @@ def play_with_stockfish(model_path, elo=1500, num_simulations=200, show_motion=F
     
     print("\nИгра окончена!")
     print(board.result(claim_draw=True))
+
+    time1 = time.time()
+    print(f"Заняло: {int(time1-time0)}с")
+
     name = os.path.basename(model_path).replace('.pth', '')
     save_game_to_pgn(board, "ChessNet", f"Stockfish_{random_elo}",
     f"{name}_vs_stockfish", evals=evals_history)

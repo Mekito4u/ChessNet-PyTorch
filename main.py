@@ -80,7 +80,7 @@ def main():
               games_stats = {}
               show = int(input("Показывать ходы: "))
               for _ in range(game_cnt):
-                result = play_self_game(models[idx_w], models[idx_b], show_motion=show)
+                result = play_self_game(models[idx_w], models[idx_b], show_motion=show, max_move_num=20)
                 games_stats[result] = games_stats.get(result, 0) + 1
               for key in games_stats:
                 print(f"Итог: {key}, {games_stats[key]}")
