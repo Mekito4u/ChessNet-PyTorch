@@ -15,15 +15,31 @@ def list_models():
     return models
 
 def list_games():
-    CATEGORIES = ("human_vs_human", "vs_stockfish", "selfplay")
     games = defaultdict(list)
+    
     for f in glob.glob("data/*.pgn"):
         name = os.path.basename(f)
-        for cat in CATEGORIES:
-            if f"game_{cat}_" in name or name.startswith(f"game_{cat}"):
-                games[cat].append(f)
-                break
+        if not name.startswith("game_"):
+            continue
+            
+        parts = name.split("_vs_")
+        if len(parts) < 2:
+            continue
+            
+        white = parts[0].replace("game_", "")
+        black = parts[1][:-20]
+        
+        if white == black:
+            cat = "selfplay"
+        elif "stockfish" in white or "stockfish" in black:
+            cat = "vs_stockfish"
+        else:
+            cat = "human_vs_network"
+            
+        games[cat].append(f)
+
     print({cat: len(files) for cat, files in games.items()})
+    return games
 
 def main():
     while True:
@@ -58,12 +74,13 @@ def main():
         elif c == "6":
             models = list_models()
             if models:
-              idx = int(input("Номер модели: ")) - 1
+              idx_w = int(input("Номер модели за БЕЛЫХ: ")) - 1
+              idx_b = int(input("Номер модели за ЧЕРНЫХ: ")) - 1
               game_cnt = int(input("Кол-во игр: "))
               games_stats = {}
               show = int(input("Показывать ходы: "))
               for _ in range(game_cnt):
-                result = play_self_game(models[idx], show_motion=show)
+                result = play_self_game(models[idx_w], models[idx_b], show_motion=show)
                 games_stats[result] = games_stats.get(result, 0) + 1
               for key in games_stats:
                 print(f"Итог: {key}, {games_stats[key]}")

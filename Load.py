@@ -1,6 +1,8 @@
 import glob
 import os
 import shutil
+import re
+import math
 
 import chess
 import chess.pgn
@@ -8,6 +10,15 @@ import torch
 
 from Board import board_to_tensor
 from Move import move_to_index
+
+def parse_eval(comment):
+  match = re.search(r'\[%eval\s+(-?\d*\.?\d+)\]', comment)
+  if match:
+        return math.tanh(float(match.group(1)) / 2.0)
+  match_mate = re.search(r'\[%eval\s+#(-?\d+)\]', comment)
+  if match_mate:
+      return 1.0 if int(match_mate.group(1)) > 0 else -1.0
+  return None
 
 
 def load_all_pgns_from_folder(folder_path):
@@ -25,29 +36,36 @@ def load_all_pgns_from_folder(folder_path):
                 result = game.headers.get("Result", "*")
                 val_white = 1.0 if result == "1-0" else (-1.0 if result == "0-1" else 0.0)
 
-                for move in game.mainline_moves():
+                node = game
+                while node.variations:
+                    next_node = node.variation(0)
+                    move = next_node.move
+
                     state_tensor = board_to_tensor(board)
                     move_idx = move_to_index(move)
-                    value = val_white if board.turn == chess.WHITE else -val_white
+
+                    mcts_eval = parse_eval(next_node.comment)
+                    if mcts_eval is not None:
+                        value = mcts_eval if board.turn == chess.WHITE else -mcts_eval
+                    else:
+                        value = val_white if board.turn == chess.WHITE else -val_white
 
                     # ОРИГИНАЛ
                     all_data.append((state_tensor, move_idx, value))
 
                     # ЗЕРКАЛО
-                    mirrored_tensor = torch.flip(state_tensor, dims=[2])
-                    mirrored_tensor = torch.cat([
-                        mirrored_tensor[6:12],
-                        mirrored_tensor[0:6],
-                        mirrored_tensor[12:13]
-                    ], dim=0)
-                    mirrored_tensor[12] = 1.0 - mirrored_tensor[12]
+                    mirrored_board = board.mirror()
+                    mirrored_tensor = board_to_tensor(mirrored_board)
 
-                    from_sq = move.from_square
-                    to_sq = move.to_square
-                    m_from = (from_sq // 8) * 8 + (7 - (from_sq % 8))
-                    m_to = (to_sq // 8) * 8 + (7 - (to_sq % 8))
-                    mirrored_move_idx = m_from * 64 + m_to
+                    from_sq, to_sq = move.from_square, move.to_square
+                    m_from = chess.square_mirror(from_sq)
+                    m_to = chess.square_mirror(to_sq)
+                    mirrored_move = chess.Move(m_from, m_to, promotion=move.promotion)
+                    mirrored_move_idx = move_to_index(mirrored_move)
+
 
                     all_data.append((mirrored_tensor, mirrored_move_idx, -value))
+
                     board.push(move)
+                    node = next_node
     return all_data

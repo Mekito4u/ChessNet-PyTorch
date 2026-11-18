@@ -24,8 +24,8 @@ class MCTS:
                 node, temp_board = root, board.copy()
                 while node.is_expanded() and not temp_board.is_game_over(claim_draw=True):
                     best_move = max(node.children.keys(), key=lambda m: node.children[m].get_value())
-                    node.children[best_move].N += 1
-                    node.children[best_move].W -= 1.0
+                    node.children[best_move].N += 1.0
+                    node.children[best_move].W += 1.0
                     node = node.children[best_move]
                     temp_board.push(best_move)
                 leaves.append((node, temp_board))

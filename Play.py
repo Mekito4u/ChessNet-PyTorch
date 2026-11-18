@@ -9,7 +9,14 @@ import chess.pgn
 import torch
 
 from ChessNet import ChessNet
+from Board import board_to_tensor
 from MCTS import MCTS
+
+def net_eval(model, board, device):
+    with torch.no_grad():
+        x = torch.stack([board_to_tensor(board)]).to(device)
+        _, vals = model(x)
+        return vals.item()
 
 
 def get_best_move_mcts(model, board, num_simulations=200, temperature=0.0, add_noise=False):
@@ -30,11 +37,11 @@ def get_best_move_mcts(model, board, num_simulations=200, temperature=0.0, add_n
         probs = visits / visits.sum()
         best_move = np.random.choice(moves, p=probs)
 
-    best_value = root.children[best_move].Q
+    best_value = root.Q
     return best_move, best_value
 
 
-def save_game_to_pgn(board, white, black, prefix):
+def save_game_to_pgn(board, white, black, prefix, evals=None):
     game = chess.pgn.Game()
     game.headers["Event"] = f"{white} vs {black}"
     game.headers["Date"] = datetime.datetime.now().strftime("%Y.%m.%d")
@@ -50,8 +57,12 @@ def save_game_to_pgn(board, white, black, prefix):
         game.headers["Result"] = "*"
 
     node = game
-    for move in board.move_stack:
+    for i, move in enumerate(board.move_stack):
         node = node.add_variation(move)
+        if evals and i < len(evals):
+            # Оценка MCTS
+            val = evals[i]
+            node.comment = f"[%eval {val:.2f}]"
 
     if not os.path.exists("data"): os.makedirs("data")
     filename = f"data/game_{prefix}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pgn"
@@ -78,20 +89,21 @@ def print_game_result(board):
         print(f"Результат: {board.result()}")
 
 
-def play_with_human(model_path, num_simulations=100):
+def play_with_human(model_path, num_simulations=200, max_move_num=0):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = ChessNet()
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
     model.eval()
+
     board = chess.Board()
+    move_num = 1
 
     print(f"Загружена модель: {model_path}")
     print("Вы играете за БЕЛЫХ.")
-    move_num = 1
-
+    evals_history = []
     while not board.is_game_over(claim_draw=True):
-        if move_num <= 15:
+        if move_num <= max_move_num:
             temp = 1.0
             use_noise = True
         else:
@@ -105,12 +117,14 @@ def play_with_human(model_path, num_simulations=100):
                 try:
                     move = chess.Move.from_uci(move_str)
                     if move in board.legal_moves:
+                        val = net_eval(model, board, device)
+                        evals_history.append(val)
                         board.push(move)
                         if board.is_check(): print("ШАХ!")
                         break
                     else:
                         print("Нелегальный ход!")
-                except:
+                except ValueError:
                     print("Неверный формат (введите e2e4).")
         else:
             move, val = get_best_move_mcts(
@@ -119,28 +133,39 @@ def play_with_human(model_path, num_simulations=100):
                 temperature=temp, 
                 add_noise=use_noise
             )
+            evals_history.append(val)
             board.push(move)
+            move_num += 1
             print(f"ChessNet: {move} (Оценка: {val:.2f})")
             if board.is_check(): print("ChessNet ШАХ!")
-        move_num += 1
+        
 
     print_game_result(board)
-    save_game_to_pgn(board, "Human", "ChessNet", "human_vs_network")
+    model_name = os.path.basename(model_path).replace('.pth', '')
+    save_game_to_pgn(board, "Human", "ChessNet", f"human_vs_{model_name}", evals=evals_history)
 
 
-def play_self_game(model_path, num_simulations=100, show_motion=False):
+def play_self_game(model_white_path, model_black_path, num_simulations=200, show_motion=False, max_move_num=0):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = ChessNet()
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
-    model.eval()
-    board = chess.Board()
 
-    print("Игра ChessNet с самой собой...")
+    model_white = ChessNet()
+    model_white.load_state_dict(torch.load(model_white_path, map_location=device))
+    model_white.to(device)
+    model_white.eval()
+
+    model_black = ChessNet()
+    model_black.load_state_dict(torch.load(model_black_path, map_location=device))
+    model_black.to(device)
+    model_black.eval()
+
+    MAX_HALF_MOVES = 100
+    board = chess.Board()
     move_num = 1
 
-    while not board.is_game_over(claim_draw=True):
-        if move_num <= 5:
+    print("Игра ChessNet с самой собой...")
+    evals_history = []
+    while not board.is_game_over(claim_draw=True) and move_num < MAX_HALF_MOVES:
+        if move_num <= max_move_num:
             temp = 1.0
             use_noise = True
         else:
@@ -151,25 +176,37 @@ def play_self_game(model_path, num_simulations=100, show_motion=False):
             if show_motion:
               print(f"\n{move_num}.", end=" ")
             move_num += 1
+            current_model = model_white
+        else:
+            current_model = model_black
 
         move, val = get_best_move_mcts(
-            model, board, 
+            current_model, board, 
             num_simulations=num_simulations, 
             temperature=temp, 
             add_noise=use_noise
         )
+        evals_history.append(val)
         board.push(move)
+
         if show_motion:
-            val_white = val if board.turn == chess.WHITE else -val
-            print(f"{move} ({val_white:+.2f})", end=" ")
+            print(f"{move} ({val:+.2f})", end=" ")
             if board.is_check(): print("ШАХ!", end=" ")
         
     print("\nИгра окончена!")
-    print(board.result(claim_draw=True))
-    save_game_to_pgn(board, "ChessNet", "ChessNet", "selfplay")
-    return board.result(claim_draw=True)
+    result = board.result(claim_draw=True)
+    if result == "*":
+      result = "1/2-1/2"
+      print("Достигнут лимит ходов — ничья.")
+    print(result)
 
-def play_with_stockfish(model_path, elo=1500, num_simulations=100, show_motion=False):
+    name_w = os.path.basename(model_white_path).replace('.pth', '')
+    name_b = os.path.basename(model_black_path).replace('.pth', '')
+    save_game_to_pgn(board, name_w, name_b, f"{name_w}_vs_{name_b}", evals=evals_history)
+
+    return result
+
+def play_with_stockfish(model_path, elo=1500, num_simulations=200, show_motion=False):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = ChessNet()
     model.load_state_dict(torch.load(model_path, map_location=device))
@@ -185,11 +222,11 @@ def play_with_stockfish(model_path, elo=1500, num_simulations=100, show_motion=F
     engine.configure({"UCI_LimitStrength": True, "UCI_Elo": random_elo})
     
     
-    
-    print(f"Игра против Stockfish (Elo: {random_elo}). Вы играете за Белых.")
     board = chess.Board()
     move_num = 1
 
+    print(f"Игра против Stockfish (Elo: {random_elo}). Вы играете за Белых.")
+    evals_history = []
     while not board.is_game_over(claim_draw=True):
         if move_num <= 15:
             temp = 1.0
@@ -205,21 +242,26 @@ def play_with_stockfish(model_path, elo=1500, num_simulations=100, show_motion=F
                 temperature=temp, 
                 add_noise=use_noise
             )
+            evals_history.append(val)
             board.push(move)
             if show_motion:
               if board.is_check(): print("CN ШАХ!", end=" ")
-              print(f"{move_num}. {move} ", end="")
+              print(f"{move_num}. {move} ({val:.2f})", end=" ")
             move_num += 1
         else:
             result = engine.play(board, chess.engine.Limit(time=0.5))
+            val = net_eval(model, board, device)
+            evals_history.append(val)
             board.push(result.move)
             if show_motion:
               if board.is_check(): print("Sf ШАХ!", end=" ")
-              print(f"{result.move} Оценка: {val:.2f}")
+              print(f"{result.move}")
         
     engine.quit()
     
     print("\nИгра окончена!")
     print(board.result(claim_draw=True))
-    save_game_to_pgn(board, "ChessNet", f"Stockfish_{elo}", "vs_stockfish")
+    name = os.path.basename(model_path).replace('.pth', '')
+    save_game_to_pgn(board, "ChessNet", f"Stockfish_{random_elo}",
+    f"{name}_vs_stockfish", evals=evals_history)
     return board.result(claim_draw=True)
