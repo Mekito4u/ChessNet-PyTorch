@@ -6,6 +6,7 @@ from Download import download_lichess_games
 from Finetune import finetune_model
 from Play import play_self_game, play_with_human, play_with_stockfish
 from Train import train_from_scratch
+from Validate import list_games
 
 
 def list_models():
@@ -14,32 +15,6 @@ def list_models():
     for i, p in enumerate(models): print(f"{i + 1}. {os.path.basename(p)}")
     return models
 
-def list_games():
-    games = defaultdict(list)
-    
-    for f in glob.glob("data/*.pgn"):
-        name = os.path.basename(f)
-        if not name.startswith("game_"):
-            continue
-            
-        parts = name.split("_vs_")
-        if len(parts) < 2:
-            continue
-            
-        white = parts[0].replace("game_", "")
-        black = parts[1][:-20]
-        
-        if white == black:
-            cat = "selfplay"
-        elif "stockfish" in white or "stockfish" in black:
-            cat = "vs_stockfish"
-        else:
-            cat = "human_vs_network"
-            
-        games[cat].append(f)
-
-    print({cat: len(files) for cat, files in games.items()})
-    return games
 
 def main():
     while True:
@@ -80,7 +55,7 @@ def main():
               games_stats = {}
               show = int(input("Показывать ходы: "))
               for _ in range(game_cnt):
-                result = play_self_game(models[idx_w], models[idx_b], show_motion=show, max_move_num=20)
+                result = play_self_game(models[idx_w], models[idx_b], show_motion=show, max_move_num=10)
                 games_stats[result] = games_stats.get(result, 0) + 1
               for key in games_stats:
                 print(f"Итог: {key}, {games_stats[key]}")

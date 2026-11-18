@@ -42,14 +42,16 @@ def get_best_move_mcts(model, board, num_simulations=200, temperature=0.0, add_n
     return best_move, best_value
 
 
-def save_game_to_pgn(board, white, black, prefix, evals=None):
+def save_game_to_pgn(board, white, black, prefix, evals=None, final_result=None):
     game = chess.pgn.Game()
     game.headers["Event"] = f"{white} vs {black}"
     game.headers["Date"] = datetime.datetime.now().strftime("%Y.%m.%d")
     game.headers["White"] = white
     game.headers["Black"] = black
 
-    if board.is_game_over(claim_draw=True):
+    if final_result is not None:
+        game.headers["Result"] = final_result
+    elif board.is_game_over(claim_draw=True):
         if board.is_checkmate():
             game.headers["Result"] = "0-1" if board.turn == chess.WHITE else "1-0"
         else:
@@ -160,13 +162,13 @@ def play_self_game(model_white_path, model_black_path, num_simulations=200, show
     model_black.to(device)
     model_black.eval()
 
-    MAX_HALF_MOVES = 100
+    MAX_MOVES = 100
     board = chess.Board()
     move_num = 1
 
     print("Игра ChessNet с самой собой...")
     evals_history = []
-    while not board.is_game_over(claim_draw=True) and move_num < MAX_HALF_MOVES:
+    while not board.is_game_over(claim_draw=True) and move_num < MAX_MOVES:
         if move_num <= max_move_num:
             temp = 1.0
             use_noise = True
@@ -196,10 +198,11 @@ def play_self_game(model_white_path, model_black_path, num_simulations=200, show
             if board.is_check(): print("ШАХ!", end=" ")
         
     print("\nИгра окончена!")
-    result = board.result(claim_draw=True)
-    if result == "*":
-      result = "1/2-1/2"
-      print("Достигнут лимит ходов — ничья.")
+    if board.is_game_over(claim_draw=True):
+        result = board.result(claim_draw=True)
+    else:
+        result = "1/2-1/2"
+        print("Достигнут лимит ходов — ничья.")
     print(result)
 
     time1 = time.time()
@@ -208,7 +211,7 @@ def play_self_game(model_white_path, model_black_path, num_simulations=200, show
 
     name_w = os.path.basename(model_white_path).replace('.pth', '')
     name_b = os.path.basename(model_black_path).replace('.pth', '')
-    save_game_to_pgn(board, name_w, name_b, f"{name_w}_vs_{name_b}", evals=evals_history)
+    save_game_to_pgn(board, name_w, name_b, f"{name_w}_vs_{name_b}", evals=evals_history, final_result=result)
 
     return result
 
