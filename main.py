@@ -14,12 +14,14 @@ def ask_int(prompt):
 
 def ask_model(prompt="Номер версии модели: "):
     """Спрашивает номер версии и возвращает путь models/v<N>.pth. None, если файла нет."""
+    list_model_files()
     version = ask_int(prompt)
     path = get_model_path(version)
-    if not os.path.exists(path):
+    while not os.path.exists(path):
         print(f"Модели v{version} нет — есть только эти:")
         list_model_files()
-        return None
+        version = ask_int(prompt)
+        path = get_model_path(version)
     return path
 
 
@@ -89,7 +91,7 @@ def main():
             if not path_b:
                 continue
             show = input("Показывать ходы [y/N]: ").strip().lower() == "y"
-            run_games(lambda p: play_self_game(path_w, path_b, show_motion=show, max_move_num=10), path_w)
+            run_games(lambda p: play_self_game(path_w, path_b, show_motion=show, max_move_num=20), path_w)
 
         elif choice == "7":
             path = ask_model()

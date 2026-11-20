@@ -22,7 +22,7 @@ def net_eval(model, board, device):
     """
     with torch.no_grad():
         x = torch.stack([board_to_tensor(board)]).to(device)
-        _, vals = model(x)
+        _, vals, _ = model(x)
         return vals.item()
 
 

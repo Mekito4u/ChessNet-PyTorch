@@ -39,7 +39,7 @@ class MCTS:
             if states:
                 batch_tensor = torch.stack(states).to(self.device)
                 with torch.no_grad():
-                    policies, vals = self.model(batch_tensor)
+                    policies, vals, _ = self.model(batch_tensor)
                     policies = torch.softmax(policies, dim=1).cpu()
                     vals = vals.cpu()
 

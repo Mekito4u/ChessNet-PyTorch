@@ -23,6 +23,10 @@ class ChessNet(nn.Module):
         self.value_fc1 = nn.Linear(256 * 8 * 8, 256)
         self.value_fc2 = nn.Linear(256, 1)
 
+        # Материал
+        self.material_fc1 = nn.Linear(256 * 8 * 8, 128)
+        self.material_fc2 = nn.Linear(128, 1)
+
     def forward(self, x):
         # Свертка
         x = F.silu(self.bn1(self.conv1(x)))
@@ -41,4 +45,8 @@ class ChessNet(nn.Module):
         value = F.silu(self.value_fc1(x_flat))
         value = self.value_fc2(value)
 
-        return policy, value
+        # Материал
+        material = F.silu(self.material_fc1(x_flat))
+        material = self.material_fc2(material)
+
+        return policy, value, material

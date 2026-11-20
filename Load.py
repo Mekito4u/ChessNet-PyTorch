@@ -12,6 +12,9 @@ from Board import board_to_tensor
 from Move import move_to_index
 
 
+PIECE_VALUES = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
+
+
 def parse_eval(comment):
   """
     Достаёт оценку позиции из комментария хода: [%eval 1.23] -> tanh(x/2),
@@ -51,6 +54,12 @@ def load_all_pgns_from_folder(folder_path):
                 result = game.headers.get("Result", "*")
                 val_white = 1.0 if result == "1-0" else (-1.0 if result == "0-1" else 0.0)
 
+                material_white = 0
+                for square in chess.SQUARES:
+                    piece = board.piece_at(square)
+                    if piece and piece.color == chess.WHITE:
+                        material_white += PIECE_VALUES[piece.piece_type]
+
                 node = game
                 while node.variations:
                     next_node = node.variation(0)
@@ -65,8 +74,11 @@ def load_all_pgns_from_folder(folder_path):
                     else:
                         value = val_white if board.turn == chess.WHITE else -val_white
 
+                    mat_balance = material_white - (sum(PIECE_VALUES[p.piece_type] for p in board.piece_map().values() if p.color == chess.BLACK))
+
                     # ОРИГИНАЛ
-                    all_data.append((state_tensor, move_idx, value))
+                    all_data.append((state_tensor, move_idx, value, float(mat_balance)))
+
 
                     # ЗЕРКАЛО
                     mirrored_board = board.mirror()
@@ -78,8 +90,12 @@ def load_all_pgns_from_folder(folder_path):
                     mirrored_move = chess.Move(m_from, m_to, promotion=move.promotion)
                     mirrored_move_idx = move_to_index(mirrored_move)
 
+                    all_data.append((mirrored_tensor, mirrored_move_idx, -value, -float(mat_balance)))
 
-                    all_data.append((mirrored_tensor, mirrored_move_idx, -value))
+                    if board.is_capture(move):
+                        captured = board.piece_at(move.to_square)
+                        if captured and captured.color == chess.BLACK:
+                            material_white -= PIECE_VALUES[captured.piece_type]
 
                     board.push(move)
                     node = next_node

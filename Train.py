@@ -64,16 +64,24 @@ def train_core(model, dataset, version, epochs=20, batch_size=256, lr=0.001, res
     model.train()
     for epoch in range(start_epoch, epochs):
         total_loss = 0.0
-        for boards, target_moves, target_values in dataloader:
-            boards, target_moves, target_values = boards.to(device), target_moves.to(device), target_values.to(device)
+        for boards, target_moves, target_values, target_material in dataloader:
+            boards = boards.to(device)
+            target_moves = target_moves.to(device)
+            target_values = target_values.to(device)
+            target_material = target_material.to(device)
             optimizer.zero_grad()
 
             with torch.amp.autocast(device.type):
-                pred_policies, pred_values = model(boards)
+                pred_policies, pred_values, pred_material = model(boards)
+
                 loss_p = policy_loss_fn(pred_policies, target_moves)
                 target_values = target_values.view(-1, 1)
                 loss_v = value_loss_fn(pred_values, target_values)
-                loss = loss_p + 2.0 * loss_v
+
+                target_material = target_material.view(-1, 1)
+                loss_material = value_loss_fn(pred_material, target_material)
+
+                loss = loss_p + 2.0 * loss_v + 0.5 * loss_material
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
