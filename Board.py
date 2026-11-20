@@ -16,16 +16,11 @@ def board_to_tensor(board):
         chess.ROOK: 3, chess.QUEEN: 4, chess.KING: 5
     }
 
-    for square in chess.SQUARES:
-        piece = board.piece_at(square)
-        if piece is not None:
-            row = 7 - (square // 8)
-            col = square % 8
-            channel = piece_to_channel[piece.piece_type]
-            if piece.color == chess.BLACK:
-                channel += 6
-            tensor[channel, row, col] = 1.0
-
+    for piece_type in piece_to_channel:
+        for color in (chess.WHITE, chess.BLACK):
+            ch = piece_to_channel[piece_type] + (0 if color == chess.WHITE else 6)
+            for sq in board.pieces(piece_type, color):
+                tensor[ch, 7 - sq // 8, sq % 8] = 1.0
     if board.turn == chess.WHITE:
         tensor[12, :, :] = 1.0
     return tensor

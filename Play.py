@@ -44,7 +44,11 @@ def get_best_move_mcts(model, board, num_simulations, temperature, add_noise=Fal
         best_move = moves[np.argmax(visits)]
     else:
         visits = visits ** (1.0 / temperature)
-        probs = visits / visits.sum()
+        total = visits.sum()
+        if total == 0:
+            probs = np.ones(len(moves)) / len(moves)
+        else:
+            probs = visits / total
         best_move = np.random.choice(moves, p=probs)
 
     best_value = root.Q
@@ -187,6 +191,7 @@ def play_self_game(model_white_path, model_black_path, num_simulations=100, show
     model_black.eval()
 
     MAX_MOVES = 100
+    pgn_opening = None
     if opening_name:
         board, opening_moves, eco, opening_name = sample_opening(opening_name, n_plies=12)
         tmp = chess.Board()
@@ -195,6 +200,7 @@ def play_self_game(model_white_path, model_black_path, num_simulations=100, show
             san_str.append(tmp.san(chess.Move.from_uci(u)))
             tmp.push(chess.Move.from_uci(u))
         print(f"Дебют: {eco} {opening_name}: {' '.join(san_str)}")
+        pgn_opening = f"{eco} {opening_name}"
         max_move_num = max(max_move_num - len(opening_moves) // 2, 0)
     else:
         board = chess.Board()
@@ -240,14 +246,14 @@ def play_self_game(model_white_path, model_black_path, num_simulations=100, show
     print(result)
 
     time1 = time.time()
-    print(f"Заняло: {int(time1-time0)}с")
+    print(f"Заняло: {int(time1-time0)}с, Ходов: {move_num}")
 
 
     name_w = os.path.basename(model_white_path).replace('.pth', '')
     name_b = os.path.basename(model_black_path).replace('.pth', '')
     save_game_to_pgn(board, name_w, name_b, f"{name_w}_vs_{name_b}",
                      evals=evals_history, final_result=result,
-                     opening_name=f"{eco} {opening_name}")
+                     opening_name=pgn_opening)
 
     return result
 
