@@ -3,6 +3,13 @@ import torch
 
 
 def board_to_tensor(board):
+    """
+    Превращает шахматную доску в тензор 13×8×8.
+
+    Каналы 0–5: белые фигуры (пешка…король).
+    Каналы 6–11: чёрные те же фигуры.
+    Канал 12: чей ход — 1.0 если белые, иначе 0.0.
+    """
     tensor = torch.zeros(13, 8, 8)
     piece_to_channel = {
         chess.PAWN: 0, chess.KNIGHT: 1, chess.BISHOP: 2,

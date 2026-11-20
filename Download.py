@@ -6,8 +6,8 @@ import chess.pgn
 
 
 def download_lichess_games(username, max_games):
+    """Скачивает партии игрока с Lichess и складывает их в папку data."""
     os.makedirs("data", exist_ok=True)
-    os.makedirs("archive", exist_ok=True)
 
     url = f"https://lichess.org/api/games/user/{username}?max={max_games}&clocks=false&evals=false&opening=true"
     req = urllib.request.Request(url, headers={'User-Agent': 'ChessNet-Trainer'})
@@ -20,16 +20,16 @@ def download_lichess_games(username, max_games):
     count_skipped = 0
     while True:
         game = chess.pgn.read_game(pgn_io)
-        if game is None: break
+        if game is None:
+            break
 
         utc_date = game.headers.get("UTCDate", "2000.01.01").replace(".", "")
         utc_time = game.headers.get("UTCTime", "000000").replace(":", "")
         base_name = f"game_human_vs_human_{utc_date}_{utc_time}.pgn"
 
         path_data = os.path.join("data", base_name)
-        path_archive = os.path.join("archive", base_name)
 
-        if not os.path.exists(path_data) and not os.path.exists(path_archive):
+        if not os.path.exists(path_data):
             with open(path_data, "w", encoding="utf-8") as f:
                 print(game, file=f, end="\n\n")
             count_saved += 1

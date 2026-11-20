@@ -11,7 +11,13 @@ import torch
 from Board import board_to_tensor
 from Move import move_to_index
 
+
 def parse_eval(comment):
+  """
+    Достаёт оценку позиции из комментария хода: [%eval 1.23] -> tanh(x/2),
+    [%eval #N] -> +/-1.0 (мат). Нет тега — None, тогда значением станет
+    результат партии.
+  """
   match = re.search(r'\[%eval\s+(-?\d*\.?\d+)\]', comment)
   if match:
         return math.tanh(float(match.group(1)) / 2.0)
@@ -22,6 +28,15 @@ def parse_eval(comment):
 
 
 def load_all_pgns_from_folder(folder_path):
+    """
+    Читает все PGN из папки и собирает обучающие примеры по каждому полуходу:
+    (тензор позиции, индекс хода, значение позиции).
+
+    Значение берётся из [%eval] в комментарии (если есть) или из результата
+    партии; знак приводится к точке зрения ходящего. Каждая позиция дублируется
+    зеркальной копией (board.mirror + отражённый ход, value с минусом) —
+    аугментация против перекоса «сеть играет только за белых».
+    """
     all_data = []
     if not os.path.exists(folder_path): return all_data
 

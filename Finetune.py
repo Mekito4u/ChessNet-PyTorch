@@ -9,6 +9,12 @@ from Train import train_core, move_files_to_archive
 
 
 def finetune_model(base_model_path, epochs=5):
+    """
+    Дообучает сохранённую модель на новых партиях.
+
+    Грузит данные из data/, накатывает базовые веса, прогоняет train_core
+    с малым lr (0.0005) и префиксом finetuned
+    """
     data = load_all_pgns_from_folder("data")
     if not data:
         print("Нет новых данных!")

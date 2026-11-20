@@ -2,8 +2,8 @@ import os
 import time
 import shutil
 
+import torch
 import torch.optim as optim
-from sympy.printing.pytorch import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
@@ -20,30 +20,26 @@ def move_files_to_archive():
     print(f"Перемещено в архив: {len(files)} файлов.")
 
 
-def get_next_path(prefix, folder="models"):
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-
-    existing = [f for f in os.listdir(folder) if f.startswith(f"{prefix}_v") and f.endswith(".pth")]
-
-    if not existing:
-        return os.path.join(folder, f"{prefix}_v1.pth")
-
-    versions = [int(f.split("_v")[1].split(".")[0]) for f in existing]
-    next_version = max(versions) + 1
-
-    return os.path.join(folder, f"{prefix}_v{next_version}.pth")
+def get_model_path(version):
+    """Отдаёт путь к модели по номеру версии: models/v<N>.pth."""
+    os.makedirs("models", exist_ok=True)
+    return os.path.join("models", f"v{version}.pth")
 
 
-def train_core(model, dataset, prefix, epochs=20, batch_size=256, lr=0.001, resume=False):
+def train_core(model, dataset, version, epochs=20, batch_size=256, lr=0.001, resume=False):
+    """
+    Обучение модели: policy — CrossEntropy с label smoothing, value — SmoothL1,
+    вес value-лосса x2. AdamW + OneCycleLR + AMP. Каждый эпох сохраняет
+    checkpoint для resume, в конце сохраняет models/v<version>.pth.
+    """
     time0 = time.time()
-    device = torch.device('cuda')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     dataloader = DataLoader(
-        dataset, 
-        batch_size=batch_size, 
-        shuffle=True, 
-        num_workers=2, 
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=2,
         pin_memory=True
     )
 
@@ -51,12 +47,12 @@ def train_core(model, dataset, prefix, epochs=20, batch_size=256, lr=0.001, resu
     scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, steps_per_epoch=len(dataloader), epochs=epochs)
 
     model.to(device)
-    scaler = torch.amp.GradScaler('cuda')
+    scaler = torch.amp.GradScaler(device.type)
 
     start_epoch = 0
-    checkpoint_path = f"models/checkpoint_{prefix}.pth"
+    checkpoint_path = f"models/checkpoint_v{version}.pth"
     if resume and os.path.exists(checkpoint_path):
-        ckpt = torch.load(checkpoint_path)
+        ckpt = torch.load(checkpoint_path, weights_only=True)
         model.load_state_dict(ckpt['model'])
         optimizer.load_state_dict(ckpt['optimizer'])
         scheduler.load_state_dict(ckpt['scheduler'])
@@ -72,7 +68,7 @@ def train_core(model, dataset, prefix, epochs=20, batch_size=256, lr=0.001, resu
             boards, target_moves, target_values = boards.to(device), target_moves.to(device), target_values.to(device)
             optimizer.zero_grad()
 
-            with torch.amp.autocast('cuda'):
+            with torch.amp.autocast(device.type):
                 pred_policies, pred_values = model(boards)
                 loss_p = policy_loss_fn(pred_policies, target_moves)
                 target_values = target_values.view(-1, 1)
@@ -87,25 +83,26 @@ def train_core(model, dataset, prefix, epochs=20, batch_size=256, lr=0.001, resu
             total_loss += loss.item()
 
         print(f"Эпоха {epoch+1}/{epochs}, Loss: {total_loss/len(dataloader):.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
-        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         torch.save({
-            'epoch': epoch + 1, 
-            'model': model.state_dict(), 
-            'optimizer': optimizer.state_dict(), 
+            'epoch': epoch + 1,
+            'model': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
             'scheduler': scheduler.state_dict()
-            }, checkpoint_path
-        )
+        }, checkpoint_path)
 
-    save_path = get_next_path(prefix)
+    save_path = get_model_path(version)
     torch.save(model.state_dict(), save_path)
     print(f"Модель сохранена в {save_path}. Время: {time.time() - time0:.1f} сек")
-    if os.path.exists(checkpoint_path): os.remove(checkpoint_path)
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
 
 
-def train_from_scratch(epochs=20, resume=False):
-    data = load_all_pgns_from_folder("data") + load_all_pgns_from_folder("archive")
+def train_from_scratch(version, epochs=20, resume=False):
+    """
+    Полное обучение с нуля на всех партиях из data/. Результат — models/v<version>.pth.
+    """
+    data = load_all_pgns_from_folder("data")
     if not data:
         print("Нет данных!")
         return
-    train_core(ChessNet(), ChessDataset(data), prefix="scratch", epochs=epochs, lr=0.001, resume=resume)
-    move_files_to_archive()
+    train_core(ChessNet(), ChessDataset(data), version=version, epochs=epochs, lr=0.001, resume=resume)

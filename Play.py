@@ -13,7 +13,13 @@ from ChessNet import ChessNet
 from Board import board_to_tensor
 from MCTS import MCTS
 
+
+
 def net_eval(model, board, device):
+    """
+    Оценка позиции value-head'ом сети с точки зрения ходящего.
+    Отдаёт одно число: чем ближе к +1, тем лучше тому, чей сейчас ход.
+    """
     with torch.no_grad():
         x = torch.stack([board_to_tensor(board)]).to(device)
         _, vals = model(x)
@@ -21,8 +27,13 @@ def net_eval(model, board, device):
 
 
 def get_best_move_mcts(model, board, num_simulations=200, temperature=0.0, add_noise=False):
+    """
+    Запускает MCTS и выбирает ход: temperature=0 — жадно по визитам,
+    иначе сэмплирует пропорционально визитам^(1/T). Возвращает (ход, оценка).
+    """
     mcts = MCTS(model, num_simulations=num_simulations)
-    root = mcts.search(board)
+    root = mcts.search(board, add_noise=add_noise)
+
     if root is None or not root.children:
         return list(board.legal_moves)[0], 0.0
 
@@ -30,10 +41,8 @@ def get_best_move_mcts(model, board, num_simulations=200, temperature=0.0, add_n
     visits = np.array([root.children[m].N for m in moves], dtype=np.float64)
 
     if temperature == 0.0:
-        # Жадный выбор
         best_move = moves[np.argmax(visits)]
     else:
-        # Выбор с температурой
         visits = visits ** (1.0 / temperature)
         probs = visits / visits.sum()
         best_move = np.random.choice(moves, p=probs)
@@ -43,6 +52,12 @@ def get_best_move_mcts(model, board, num_simulations=200, temperature=0.0, add_n
 
 
 def save_game_to_pgn(board, white, black, prefix, evals=None, final_result=None):
+    """
+    Сохраняет сыгранную партию в data/game_<prefix>_<дата_время>.pgn.
+    Результат: переданный final_result, иначе определяется по доске
+    (мат / пат / правило 50 ходов / повторение). Оценки MCTS пишутся
+    в комментарии [%eval] к каждому ходу.
+    """
     game = chess.pgn.Game()
     game.headers["Event"] = f"{white} vs {black}"
     game.headers["Date"] = datetime.datetime.now().strftime("%Y.%m.%d")
@@ -63,7 +78,6 @@ def save_game_to_pgn(board, white, black, prefix, evals=None, final_result=None)
     for i, move in enumerate(board.move_stack):
         node = node.add_variation(move)
         if evals and i < len(evals):
-            # Оценка MCTS
             val = evals[i]
             node.comment = f"[%eval {val:.2f}]"
 
@@ -149,6 +163,12 @@ def play_with_human(model_path, num_simulations=200, max_move_num=0):
 
 
 def play_self_game(model_white_path, model_black_path, num_simulations=200, show_motion=False, max_move_num=0):
+    """
+    Партия сети против самой себя (можно разные чекпоинты белыми/чёрными).
+    Первые max_move_num ходов — температура 1.0 (разнообразие дебютов),
+    дальше — жадная игра. Лимит 100 ходов, иначе техническая ничья.
+    Возвращает строку результата и сохраняет PGN.
+    """
     time0 = time.time()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -216,6 +236,11 @@ def play_self_game(model_white_path, model_black_path, num_simulations=200, show
     return result
 
 def play_with_stockfish(model_path, elo=1500, num_simulations=200, show_motion=False):
+    """
+    Матч против Stockfish со случайным Elo в диапазоне ±150 от заданного.
+    ChessNet играет белыми, первые 15 ходов с температурой.
+    Возвращает результат партии и сохраняет PGN.
+    """
     time0 = time.time()
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
