@@ -6,43 +6,11 @@ import re
 import chess
 import chess.pgn
 
-BOOK_DIR = "chess-openings"
+from Openings import ensure_loaded, BY_EPD
+
+
 DATA_DIR = "data"
 N_PLIES = 20
-
-BOOK_BY_EPD = {}
-
-
-
-def load_book():
-    """
-    Загрузка базы дебютов
-    """
-    files = sorted(glob.glob(os.path.join(BOOK_DIR, "[a-e].tsv")))
-    if not files:
-        print(f"[!] Файлы a-e.tsv не найдены в '{BOOK_DIR}'")
-        return
-    for path in files:
-        with open(path, encoding="utf-8") as f:
-            cols = f.readline().rstrip("\n").split("\t")
-            i_eco, i_name, i_pgn = cols.index("eco"), cols.index("name"), cols.index("pgn")
-            for line in f:
-                p = line.rstrip("\n").split("\t")
-                if len(p) <= i_pgn or p[i_pgn] == "*":
-                    continue
-                game = chess.pgn.read_game(io.StringIO(p[i_pgn]))
-                if game is None or game.errors:
-                    continue
-                board = game.board()
-                ok = True
-                for node in game.mainline():
-                    if node.move is None or node.move not in board.legal_moves:
-                        ok = False
-                        break
-                    board.push(node.move)
-                if ok and board.epd() not in BOOK_BY_EPD:
-                    BOOK_BY_EPD[board.epd()] = (p[i_eco], p[i_name])
-    print(f"[i] Загружено {len(BOOK_BY_EPD)} позиций из книги дебютов")
 
 
 def read_header(path, tag):
@@ -86,8 +54,8 @@ def opening_key(game):
         if move not in board.legal_moves:
             break
         board.push(move)
-        if board.epd() in BOOK_BY_EPD:
-            best = BOOK_BY_EPD[board.epd()]
+        if board.epd() in BY_EPD:
+            best = BY_EPD[board.epd()]
     if best:
         return f"{best[0]} {best[1]}"
 
@@ -100,7 +68,7 @@ def opening_key(game):
         b.push(m)
     return "Неизвестный дебют: " + (" ".join(sans) if sans else "пустая партия")
 
-_book_loaded = False
+
 def list_games():
     """
     Сбор статистики по всем партиям из DATA_DIR.
@@ -113,16 +81,14 @@ def list_games():
     Возвращает: (games, scores, opening_counts).
     """
 
-    global _book_loaded
-    if not _book_loaded:
-        load_book()
-        _book_loaded = True
+    ensure_loaded()
 
     games = defaultdict(list)
     scores = defaultdict(lambda: [0, 0, 0])
     opening_counts = Counter()
     opening_scores = defaultdict(lambda: [0, 0, 0])
     opening_by_match = defaultdict(Counter)
+    result_map = {"1-0": 0, "1/2-1/2": 1, "0-1": 2}
 
     for f in glob.glob(os.path.join(DATA_DIR, "*.pgn")):
         name = os.path.basename(f)
@@ -131,24 +97,25 @@ def list_games():
         m = match_name(f)
         if m is None:
             continue
-        games[m].append(f)
 
-        result = read_header(f, "Result")
-        if result == "1-0":
-            scores[m][0] += 1
-        elif result == "1/2-1/2":
-            scores[m][1] += 1
-        elif result == "0-1":
-            scores[m][2] += 1
-
+        
         with open(f, encoding="utf-8") as pgn_file:
             game = chess.pgn.read_game(pgn_file)
         if game is None:
             continue
-        opening = opening_key(game)
+
+        result = game.headers.get("Result", "*")
+
+        games[m].append(f)
+        if result in result_map:
+            scores[m][result_map[result]] += 1
+
+        
+        opening = game.headers.get("Opening") or opening_key(game)
+
         opening_counts[opening] += 1
-        if result in ("1-0", "1/2-1/2", "0-1"):
-            opening_scores[opening][{"1-0": 0, "1/2-1/2": 1, "0-1": 2}[result]] += 1
+        if result in result_map:
+            opening_scores[opening][result_map[result]] += 1
         opening_by_match[m][opening] += 1
 
     print("\nРезультаты")

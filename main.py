@@ -1,4 +1,5 @@
 import os
+import random
 
 from Cleanup import dedupe, remove_interrupted_games
 from Download import download_lichess_games
@@ -6,6 +7,8 @@ from Finetune import finetune_model
 from Play import play_self_game, play_with_human, play_with_stockfish
 from Train import get_model_path, train_from_scratch
 from DataStats import list_games
+from Openings import ensure_loaded, list_openings, sample_opening, LINES
+
 
 
 def ask_int(prompt):
@@ -23,6 +26,32 @@ def ask_model(prompt="Номер версии модели: "):
         version = ask_int(prompt)
         path = get_model_path(version)
     return path
+
+def ask_opening():
+    """Спрашивает дебют для self-play. None — играть с нулевой позиции."""
+    print("\nДебют:")
+    print("  1. Случайный из книги")
+    print("  2. Конкретный (по названию)")
+    print("  Enter — без книги, с нулевой позиции")
+    sub = input("Выбор: ").strip()
+    if sub == "1":
+        ensure_loaded()
+        return random.choice(LINES)[2]
+    if sub == "2":
+        ensure_loaded()
+        while True:
+            substr = input("Часть названия (например Italian): ")
+            matches = list_openings(substr)
+            if matches:
+              break
+            print("Ничего не найдено.")
+        for i, n in enumerate(matches[:10], 1):
+            print(f"  {i}. {n}")
+        if len(matches) > 10:
+            print(f"  ... и ещё {len(matches) - 10}")
+        idx = ask_int("Номер: ") - 1
+        return matches[idx] if 0 <= idx < len(matches) else None
+    return None
 
 
 def list_model_files():
@@ -91,7 +120,12 @@ def main():
             if not path_b:
                 continue
             show = input("Показывать ходы [y/N]: ").strip().lower() == "y"
-            run_games(lambda p: play_self_game(path_w, path_b, show_motion=show, max_move_num=20), path_w)
+            opening = ask_opening()
+            run_games(
+                lambda p: play_self_game(path_w, path_b, show_motion=show,
+                                         max_move_num=20, opening_name=opening),
+                path_w,
+            )
 
         elif choice == "7":
             path = ask_model()
@@ -99,7 +133,8 @@ def main():
                 continue
             elo = ask_int("Elo Stockfish: ")
             show = input("Показывать ходы [y/N]: ").strip().lower() == "y"
-            run_games(lambda p: play_with_stockfish(p, elo=elo, show_motion=show), path)
+            opening = ask_opening()
+            run_games(lambda p: play_with_stockfish(p, elo=elo, show_motion=show, opening_name=opening), path)
 
         elif choice == "8":
             print("\n1. Найти и удалить дубли\n2. Удалить недоигранные партии")

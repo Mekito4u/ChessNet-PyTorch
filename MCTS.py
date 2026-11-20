@@ -8,7 +8,7 @@ from Move import move_to_index
 
 
 class MCTS:
-    def __init__(self, model, num_simulations=200, batch_size=16, dirichlet_alpha=0.3, dirichlet_epsilon=0.25):
+    def __init__(self, model, num_simulations, batch_size=16, dirichlet_alpha=0.3, dirichlet_epsilon=0.25):
         self.model, self.num_simulations, self.batch_size = model, num_simulations, batch_size
         self.model.eval()
         self.device = next(self.model.parameters()).device

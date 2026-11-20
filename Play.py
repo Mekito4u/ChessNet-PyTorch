@@ -12,7 +12,7 @@ import torch
 from ChessNet import ChessNet
 from Board import board_to_tensor
 from MCTS import MCTS
-
+from Openings import sample_opening
 
 
 def net_eval(model, board, device):
@@ -26,7 +26,7 @@ def net_eval(model, board, device):
         return vals.item()
 
 
-def get_best_move_mcts(model, board, num_simulations=200, temperature=0.0, add_noise=False):
+def get_best_move_mcts(model, board, num_simulations, temperature, add_noise=False):
     """
     Запускает MCTS и выбирает ход: temperature=0 — жадно по визитам,
     иначе сэмплирует пропорционально визитам^(1/T). Возвращает (ход, оценка).
@@ -51,7 +51,8 @@ def get_best_move_mcts(model, board, num_simulations=200, temperature=0.0, add_n
     return best_move, best_value
 
 
-def save_game_to_pgn(board, white, black, prefix, evals=None, final_result=None):
+def save_game_to_pgn(board, white, black, prefix, evals=None, final_result=None,
+                     opening_name=None):
     """
     Сохраняет сыгранную партию в data/game_<prefix>_<дата_время>.pgn.
     Результат: переданный final_result, иначе определяется по доске
@@ -63,6 +64,9 @@ def save_game_to_pgn(board, white, black, prefix, evals=None, final_result=None)
     game.headers["Date"] = datetime.datetime.now().strftime("%Y.%m.%d")
     game.headers["White"] = white
     game.headers["Black"] = black
+    if opening_name:
+        game.headers["Opening"] = opening_name
+        game.headers["ECO"] = opening_name.split(" ")[0]
 
     if final_result is not None:
         game.headers["Result"] = final_result
@@ -106,7 +110,7 @@ def print_game_result(board):
         print(f"Результат: {board.result()}")
 
 
-def play_with_human(model_path, num_simulations=200, max_move_num=0):
+def play_with_human(model_path, num_simulations=300, max_move_num=0):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = ChessNet()
     model.load_state_dict(torch.load(model_path, map_location=device))
@@ -162,7 +166,7 @@ def play_with_human(model_path, num_simulations=200, max_move_num=0):
     save_game_to_pgn(board, "Human", "ChessNet", f"human_vs_{model_name}", evals=evals_history)
 
 
-def play_self_game(model_white_path, model_black_path, num_simulations=200, show_motion=False, max_move_num=0):
+def play_self_game(model_white_path, model_black_path, num_simulations=100, show_motion=False, max_move_num=0, opening_name=None):
     """
     Партия сети против самой себя (можно разные чекпоинты белыми/чёрными).
     Первые max_move_num ходов — температура 1.0 (разнообразие дебютов),
@@ -183,7 +187,17 @@ def play_self_game(model_white_path, model_black_path, num_simulations=200, show
     model_black.eval()
 
     MAX_MOVES = 100
-    board = chess.Board()
+    if opening_name:
+        board, opening_moves, eco, opening_name = sample_opening(opening_name, n_plies=12)
+        tmp = chess.Board()
+        san_str = []
+        for u in opening_moves:
+            san_str.append(tmp.san(chess.Move.from_uci(u)))
+            tmp.push(chess.Move.from_uci(u))
+        print(f"Дебют: {eco} {opening_name}: {' '.join(san_str)}")
+        max_move_num = max(max_move_num - len(opening_moves) // 2, 0)
+    else:
+        board = chess.Board()
     move_num = 1
 
     print("Игра ChessNet с самой собой...")
@@ -231,11 +245,13 @@ def play_self_game(model_white_path, model_black_path, num_simulations=200, show
 
     name_w = os.path.basename(model_white_path).replace('.pth', '')
     name_b = os.path.basename(model_black_path).replace('.pth', '')
-    save_game_to_pgn(board, name_w, name_b, f"{name_w}_vs_{name_b}", evals=evals_history, final_result=result)
+    save_game_to_pgn(board, name_w, name_b, f"{name_w}_vs_{name_b}",
+                     evals=evals_history, final_result=result,
+                     opening_name=f"{eco} {opening_name}")
 
     return result
 
-def play_with_stockfish(model_path, elo=1500, num_simulations=200, show_motion=False):
+def play_with_stockfish(model_path, elo=1500, num_simulations=300, show_motion=False, opening_name=None):
     """
     Матч против Stockfish со случайным Elo в диапазоне ±150 от заданного.
     ChessNet играет белыми, первые 15 ходов с температурой.
@@ -249,19 +265,29 @@ def play_with_stockfish(model_path, elo=1500, num_simulations=200, show_motion=F
     model.to(device)
     model.eval()
     
+    pgn_opening = None
+
     if sys.platform.startswith("linux"):
         engine_path = "/usr/games/stockfish"
     else:
-        engine_path = "stockfish/stockfish-windows-x86-64-universal.exe"
+        engine_path = "stockfish/Stockfish-16.exe"
     engine = chess.engine.SimpleEngine.popen_uci(engine_path)
     random_elo = randint(elo-150, elo+150)
     engine.configure({"UCI_LimitStrength": True, "UCI_Elo": random_elo})
     
     
-    board = chess.Board()
+    if opening_name:
+        board, opening_moves, eco, opening_name = sample_opening(opening_name, n_plies=12)
+        pgn_opening = f"{eco} {opening_name}"
+        max_temp_moves = 15 - (len(opening_moves) + 1) // 2
+    else:
+        board = chess.Board()
     move_num = 1
 
     print(f"Игра против Stockfish (Elo: {random_elo}). Вы играете за Белых.")
+    if opening_name:
+        print(f"Дебют: {opening_name}")
+
     evals_history = []
     while not board.is_game_over(claim_draw=True):
         if move_num <= 15:
@@ -303,5 +329,5 @@ def play_with_stockfish(model_path, elo=1500, num_simulations=200, show_motion=F
 
     name = os.path.basename(model_path).replace('.pth', '')
     save_game_to_pgn(board, "ChessNet", f"Stockfish_{random_elo}",
-    f"{name}_vs_stockfish", evals=evals_history)
+        f"{name}_vs_stockfish", evals=evals_history, opening_name=pgn_opening)
     return board.result(claim_draw=True)
