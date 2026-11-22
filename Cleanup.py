@@ -4,6 +4,7 @@ import io
 import chess.pgn
 import glob
 import os
+import re
 
 def get_game_files():
     """Все партии из data/ — только файлы game_*."""
@@ -55,3 +56,66 @@ def dedupe(dry_run=True):
             deleted += 1
 
     print(f"\n{'Удалили бы' if dry_run else 'Удалено'} дублей: {deleted}")
+
+
+def rename_duplicate_games(apply=False):
+    """
+    Переименовывает файлы партий с суффиксом Windows ' (N)':
+    убирает ' (1)', а если имя занято — поднимает последнюю цифру
+    таймстампа, пока не найдёт свободное.
+
+    apply=False — только предпросмотр, apply=True — переименовать.
+    Возвращает список пар (старое_имя, новое_имя).
+    """
+    pattern = re.compile(
+        r"^(?P<base>.+)_(?P<ts>\d{8}_\d{6})(?P<suffix> $\d+$)?(?P<ext>\.pgn)$",
+        re.IGNORECASE,
+    )
+
+    folder = "data"
+    renames = []
+    for name in os.listdir(folder):
+        m = pattern.match(name)
+        if not m:
+            continue
+        base, ts, ext = m.group("base"), m.group("ts"), m.group("ext")
+
+        
+        if m.group("suffix") is None:
+            continue
+
+        new_name = f"{base}_{ts}{ext}"
+
+        if not os.path.exists(os.path.join(folder, new_name)) and \
+           not any(r[1] == new_name for r in renames):
+            renames.append((name, new_name))
+            continue
+
+        
+        for digit in range(1, 10):
+            ts_new = ts[:-1] + str((int(ts[-1]) + digit) % 10)
+            candidate = f"{base}_{ts_new}{ext}"
+            if not os.path.exists(os.path.join(folder, candidate)) and \
+               not any(r[1] == candidate for r in renames):
+                new_name = candidate
+                break
+        else:
+            print(f"  !! Не нашлось свободного имени для {name} — пропускаю")
+            continue
+
+        renames.append((name, new_name))
+
+    print(f"Найдено для переименования: {len(renames)}\n")
+    for old, new in renames:
+        print(f"  {old}\n    -> {new}")
+
+    if not renames:
+        print("Ничего делать не нужно.")
+    elif apply:
+        for old, new in renames:
+            os.rename(os.path.join(folder, old), os.path.join(folder, new))
+        print("\nГотово!")
+    else:
+        print("\nЭто предпросмотр. Вызови с apply=True, чтобы применить.")
+
+    return renames

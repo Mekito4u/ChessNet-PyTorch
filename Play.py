@@ -170,7 +170,7 @@ def play_with_human(model_path, num_simulations=300, max_move_num=0):
     save_game_to_pgn(board, "Human", "ChessNet", f"human_vs_{model_name}", evals=evals_history)
 
 
-def play_self_game(model_white_path, model_black_path, num_simulations=100, show_motion=False, max_move_num=0, opening_name=None):
+def play_self_game(model_white_path, model_black_path, num_simulations=200, show_motion=False, max_move_num=0, opening_name=None):
     """
     Партия сети против самой себя (можно разные чекпоинты белыми/чёрными).
     Первые max_move_num ходов — температура 1.0 (разнообразие дебютов),

@@ -1,7 +1,7 @@
 import os
 import random
 
-from Cleanup import dedupe, remove_interrupted_games
+from Cleanup import dedupe, remove_interrupted_games, rename_duplicate_games
 from Download import download_lichess_games
 from Finetune import finetune_model
 from Play import play_self_game, play_with_human, play_with_stockfish
@@ -137,13 +137,16 @@ def main():
             run_games(lambda p: play_with_stockfish(p, elo=elo, show_motion=show, opening_name=opening), path)
 
         elif choice == "8":
-            print("\n1. Найти и удалить дубли\n2. Удалить недоигранные партии")
+            print("\n1. Найти и удалить дубли\n2. Удалить недоигранные партии\n3. Переименовать партии")
             sub = input("Выбор: ")
             if sub == "1":
                 dry = input("Сначала посмотреть (без удаления)? [Y/n]: ").strip().lower() != "n"
                 dedupe(dry_run=dry)
             elif sub == "2":
                 remove_interrupted_games()
+            elif sub == "3":
+                dry = input("Сначала посмотреть (без удаления)? [Y/n]: ").strip().lower() != "n"
+                rename_duplicate_games()
 
         else:
             print("Нет такой команды.")
